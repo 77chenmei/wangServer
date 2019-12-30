@@ -8,6 +8,10 @@ const path = require("path");
 const os = require("os");
 const open = require("open");
 const currentPath = process.cwd();
+const cutImg = require("../lib/cutImg");
+
+const imagemin = require("imagemin");
+const imageminWebp = require("imagemin-webp");
 const package = require("../package.json");
 const tools = require("../lib/common/tools");
 
@@ -130,6 +134,88 @@ program
     stat();
   });
 
+program
+  .command("cut")
+  .description("图片剪切")
+  .action(async () => {
+    // 获取命令行参数
+    let parm = process.argv.splice(3);
+    const url = parm[0];
+    const size = parm[1];
+
+    let w = 0,
+      h = 0;
+    if (!size) {
+      console.error("未输入宽高");
+      return;
+    }
+
+    if (!(await isDirectory(url))) {
+      return;
+    }
+
+    if (!/\.(jpg|png)$/.test(url)) {
+      console.error("请输入图片");
+      return;
+    }
+
+    if (~size.indexOf("*")) {
+      arr = parm[1].split("*");
+      w = arr[0];
+      h = arr[1];
+    } else {
+      w = size;
+    }
+
+    let buffer = await cutImg(url, {
+      w,
+      h
+    });
+
+    const newUrl = url.replace(/\.(jpg|png)/, "cut.$1");
+
+    fs.writeFile(newUrl, buffer, err => {
+      if (err) {
+      } else {
+        console.log(`该图片重新剪切为：${newUrl}`);
+      }
+    });
+  });
+
+program
+  .command("imgwebp")
+  .description("图片压缩webp")
+  .action(async () => {
+    // 获取命令行参数
+    let parm = process.argv.splice(3);
+    const url = parm[0];
+    const rooterPath = "zipImg/";
+
+    // 判断是文件夹　文件
+    const isdir = await isDirectory(url);
+    let soureUrl = isdir ? `${url}/*.{jpg,png}` : url;
+    await minImg(rooterPath, soureUrl);
+
+    if (isdir) {
+      // 递归读取所有文件
+      async function readFile(url) {
+        const files = fs.readdirSync(url);
+        files
+          .map(el => {
+            return `${url}/${el}`;
+          })
+          .forEach(async file => {
+            if (await isDirectory(file)) {
+              const str = file.replace(url, "");
+              readFile(file);
+              await minImg(`${rooterPath}${str}`, `${file}/*.{jpg,png}`);
+            }
+          });
+      }
+      readFile(url);
+    }
+  });
+
 program.parse(process.argv);
 
 // 获取IPV4的地址
@@ -148,4 +234,31 @@ function getipv4() {
 
 async function handleOpen(path) {
   await open(path);
+}
+
+// 压缩图片
+function minImg(rooterPath, path) {
+  imagemin([path], {
+    destination: `${rooterPath}`,
+    plugins: [
+      imageminWebp({
+        speed: 9,
+        quality: [0.3, 0.5]
+      })
+    ]
+  });
+}
+
+// 判断是否是文件夹
+function isDirectory(url) {
+  return new Promise((resolve, reject) => {
+    fs.stat(url, (err, state) => {
+      if (err) {
+        console.log("该文件不存在");
+        reject(false);
+      } else {
+        resolve(state.isDirectory());
+      }
+    });
+  });
 }
